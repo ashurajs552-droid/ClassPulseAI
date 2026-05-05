@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { motion, useScroll, useTransform, useInView } from "framer-motion";
 import Link from "next/link";
-import { Zap, Brain, Users, Shield, BarChart3, Camera, ArrowRight, ChevronRight, Sparkles, Eye, Clock, CheckCircle2, Github } from "lucide-react";
+import { Zap, Brain, Users, Shield, BarChart3, Camera, ArrowRight, ChevronRight, Sparkles, Eye, Clock, CheckCircle2, GitBranch } from "lucide-react";
 
 // Animated counter
 function Counter({ target, suffix = "" }: { target: number; suffix?: string }) {
@@ -105,7 +105,7 @@ export default function LandingPage() {
               Start Monitoring <ArrowRight className="w-5 h-5" />
             </Link>
             <a href="https://github.com/ashurajs552-droid/ClassPulseAI" target="_blank" className="px-6 py-3.5 rounded-xl bg-white/[0.04] border border-white/[0.08] text-[#94a3b8] font-medium hover:text-white hover:border-white/[0.15] transition flex items-center gap-2">
-              <Github className="w-5 h-5" /> View Source
+              <GitBranch className="w-5 h-5" /> View Source
             </a>
           </div>
         </motion.div>
@@ -220,7 +220,7 @@ export default function LandingPage() {
             <span className="text-sm font-semibold text-white">ClassPulse AI</span>
           </div>
           <p className="text-xs text-[#475569]">© 2026 ClassPulse AI. Built by Ashu Raj S.</p>
-          <a href="https://github.com/ashurajs552-droid/ClassPulseAI" target="_blank" className="text-xs text-[#64748b] hover:text-white transition flex items-center gap-1"><Github className="w-3.5 h-3.5" /> GitHub</a>
+          <a href="https://github.com/ashurajs552-droid/ClassPulseAI" target="_blank" className="text-xs text-[#64748b] hover:text-white transition flex items-center gap-1"><GitBranch className="w-3.5 h-3.5" /> GitHub</a>
         </div>
       </footer>
     </div>
