@@ -406,6 +406,15 @@ CREATE POLICY "report_pdfs_owner_read" ON storage.objects
 CREATE POLICY "report_pdfs_auth_upload" ON storage.objects
   FOR INSERT WITH CHECK (bucket_id = 'report-pdfs' AND auth.role() = 'authenticated');
 
+-- 12. MIGRATIONS
+-- ============================================================
+ALTER TABLE public.students
+  ADD COLUMN IF NOT EXISTS usn text UNIQUE,
+  ADD COLUMN IF NOT EXISTS phone_number text,
+  ADD COLUMN IF NOT EXISTS semester text,
+  ADD COLUMN IF NOT EXISTS department text,
+  ADD COLUMN IF NOT EXISTS gender text;
+
 -- ============================================================
 -- SCHEMA COMPLETE
 -- ============================================================
