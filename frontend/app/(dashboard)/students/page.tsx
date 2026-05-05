@@ -36,11 +36,26 @@ export default function StudentsPage() {
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
-  const streamRef = useRef<MediaStream|null>(null);
+  const [stream, setStream] = useState<MediaStream | null>(null);
 
   // Load students from Supabase
   useEffect(() => {
     fetchStudents();
+
+    if (typeof window !== 'undefined') {
+      const isSecure = window.location.protocol === 'https:' || window.location.hostname === 'localhost';
+      if (!isSecure) {
+        toast.error('Camera requires HTTPS. Please use secure connection.');
+      }
+    }
+
+    navigator.permissions?.query({ name: 'camera' as PermissionName })
+      .then((result) => {
+        if (result.state === 'denied') {
+          toast.error('Camera blocked. Go to browser Settings → Site Settings → Camera → Allow');
+        }
+      })
+      .catch(() => {});
   }, []);
 
   const fetchStudents = async () => {
@@ -75,29 +90,65 @@ export default function StudentsPage() {
   };
 
   // Camera
-  const startCamera = async () => {
+  const openCamera = async () => {
+    setCameraOpen(true);
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "user", width: 640, height: 480 } });
-      streamRef.current = stream;
-      if (videoRef.current) { videoRef.current.srcObject = stream; videoRef.current.play(); }
-      setCameraOpen(true);
-    } catch { toast.error("Camera access denied"); }
+      const mediaStream = await navigator.mediaDevices.getUserMedia({
+        video: {
+          width: { ideal: 640 },
+          height: { ideal: 480 },
+          facingMode: 'user'
+        },
+        audio: false
+      });
+      setStream(mediaStream);
+      // Wait for video element to mount
+      setTimeout(() => {
+        if (videoRef.current) {
+          videoRef.current.srcObject = mediaStream;
+          videoRef.current.play().catch(console.error);
+        }
+      }, 100);
+    } catch (err: any) {
+      console.error('Camera error:', err);
+      toast.error('Cannot access camera: ' + err.message);
+      setCameraOpen(false);
+    }
   };
 
   const capturePhoto = () => {
     if (!videoRef.current || !canvasRef.current) return;
-    const ctx = canvasRef.current.getContext("2d");
-    canvasRef.current.width = 640; canvasRef.current.height = 480;
-    ctx?.drawImage(videoRef.current, 0, 0, 640, 480);
-    const dataUrl = canvasRef.current.toDataURL("image/jpeg", 0.9);
+    const video = videoRef.current;
+    const canvas = canvasRef.current;
+    canvas.width = video.videoWidth || 640;
+    canvas.height = video.videoHeight || 480;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+    // Mirror the image (selfie mode)
+    ctx.translate(canvas.width, 0);
+    ctx.scale(-1, 1);
+    ctx.drawImage(video, 0, 0);
+    const dataUrl = canvas.toDataURL('image/jpeg', 0.9);
     setPhoto(dataUrl);
-    stopCamera();
+    stopCameraStream();
+  };
+
+  const stopCameraStream = () => {
+    if (stream) {
+      stream.getTracks().forEach(t => t.stop());
+      setStream(null);
+    }
   };
 
   const stopCamera = () => {
-    streamRef.current?.getTracks().forEach(t => t.stop());
-    streamRef.current = null;
+    stopCameraStream();
     setCameraOpen(false);
+  };
+
+  const retakePhoto = async () => {
+    setPhoto(null);
+    setPhotoFile(null);
+    await openCamera();
   };
 
   // File upload
@@ -323,29 +374,47 @@ export default function StudentsPage() {
                 {/* Face Photo */}
                 <div>
                   <label className="block text-xs text-[#94a3b8] mb-1.5 font-medium">Face Photo <span className="text-[#ef4444]">*</span></label>
-                  {photo ? (
-                    <div className="relative">
-                      <img src={photo} alt="Captured" className="w-full h-48 object-cover rounded-xl border border-white/[0.08]" />
-                      <button onClick={() => { setPhoto(null); setPhotoFile(null); }} className="absolute top-2 right-2 w-7 h-7 rounded-full bg-black/60 flex items-center justify-center text-white hover:bg-black/80"><X className="w-4 h-4" /></button>
-                      <div className="absolute bottom-2 left-2 px-2 py-1 rounded-lg bg-[#10b981]/20 text-[#10b981] text-[10px] font-medium flex items-center gap-1"><Check className="w-3 h-3" /> Photo captured</div>
-                    </div>
-                  ) : cameraOpen ? (
-                    <div className="relative">
-                      <video ref={videoRef} autoPlay playsInline muted className="w-full h-48 object-cover rounded-xl border border-white/[0.08]" />
-                      <button onClick={capturePhoto} className="absolute bottom-3 left-1/2 -translate-x-1/2 px-4 py-2 rounded-xl bg-gradient-to-r from-[#6366f1] to-[#8b5cf6] text-white text-xs font-medium flex items-center gap-1.5"><Camera className="w-3.5 h-3.5" /> Capture</button>
-                    </div>
-                  ) : (
+                  {!cameraOpen && !photo && (
                     <div className="flex gap-3">
-                      <button onClick={startCamera} className="flex-1 border-2 border-dashed border-white/[0.08] rounded-xl p-6 text-center hover:border-[#6366f1]/30 transition cursor-pointer">
+                      <div onClick={openCamera} className="flex-1 border-2 border-dashed border-[#6366f1]/50 rounded-xl p-8 text-center cursor-pointer hover:border-[#818cf8] transition">
                         <Camera className="w-8 h-8 text-[#475569] mx-auto mb-2" />
-                        <p className="text-xs text-[#475569]">Use Webcam</p>
-                      </button>
-                      <div onClick={() => fileRef.current?.click()} onDragOver={e => e.preventDefault()} onDrop={handleDrop} className="flex-1 border-2 border-dashed border-white/[0.08] rounded-xl p-6 text-center hover:border-[#6366f1]/30 transition cursor-pointer">
+                        <p className="text-xs text-white mb-1">Click to open camera</p>
+                        <p className="text-[10px] text-[#64748b]">or drag & drop photo</p>
+                      </div>
+                      <div onClick={() => fileRef.current?.click()} onDragOver={e => e.preventDefault()} onDrop={handleDrop} className="flex-1 border-2 border-dashed border-white/[0.08] rounded-xl p-8 text-center cursor-pointer hover:border-[#6366f1]/30 transition">
                         <Upload className="w-8 h-8 text-[#475569] mx-auto mb-2" />
-                        <p className="text-xs text-[#475569]">Drag & Drop</p>
-                        <p className="text-[10px] text-[#334155] mt-1">Max 5MB</p>
+                        <p className="text-xs text-white mb-1">Upload Photo</p>
+                        <p className="text-[10px] text-[#64748b]">Max 5MB image</p>
                       </div>
                       <input ref={fileRef} type="file" accept="image/*" className="hidden" onChange={e => { if (e.target.files?.[0]) handleFile(e.target.files[0]); }} />
+                    </div>
+                  )}
+
+                  {cameraOpen && !photo && (
+                    <div className="relative rounded-xl overflow-hidden border border-white/[0.08]">
+                      <video
+                        ref={videoRef}
+                        autoPlay
+                        playsInline
+                        muted
+                        style={{ 
+                          width: '100%', 
+                          transform: 'scaleX(-1)',
+                          borderRadius: '12px'
+                        }}
+                      />
+                      <button onClick={capturePhoto} className="absolute bottom-4 left-1/2 -translate-x-1/2 bg-[#6366f1] hover:bg-[#818cf8] text-white px-6 py-2 rounded-full text-xs font-medium flex items-center gap-1.5 transition shadow-lg">
+                        <Camera className="w-4 h-4" /> Capture
+                      </button>
+                    </div>
+                  )}
+
+                  {photo && (
+                    <div className="relative">
+                      <img src={photo} alt="Captured" className="w-full rounded-xl border border-white/[0.08]" style={{ transform: 'scaleX(-1)' }} />
+                      <button onClick={retakePhoto} className="mt-2 w-full border border-[#6366f1] text-[#818cf8] py-2.5 rounded-lg text-xs font-medium hover:bg-[#6366f1]/10 transition flex items-center justify-center gap-1.5">
+                        🔄 Retake Photo
+                      </button>
                     </div>
                   )}
                   {errors.photo && <p className="text-[10px] text-[#ef4444] mt-1">{errors.photo}</p>}

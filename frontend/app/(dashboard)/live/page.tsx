@@ -1,12 +1,11 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { motion } from "framer-motion";
 import { useWebSocket } from "@/lib/websocket";
 import { emotionColor, emotionEmoji, engagementGrade, cn } from "@/lib/utils";
-import { Wifi, WifiOff, Play, Square, Phone, Brain, Users, Activity, Clock, AlertTriangle, Eye } from "lucide-react";
+import { Wifi, WifiOff, Play, Square, Phone, Brain, Users, Activity, Clock, AlertTriangle, Eye, Camera } from "lucide-react";
 import { toast } from "sonner";
-import VideoStream from "@/components/live/VideoStream";
 import { LineChart, Line, AreaChart, Area, PieChart, Pie, Cell, BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer } from "recharts";
 
 const EMOTION_COLORS: Record<string, string> = { attentive: "#10b981", engaged: "#06b6d4", confused: "#f59e0b", distracted: "#ef4444", sleepy: "#8b5cf6" };
@@ -14,6 +13,10 @@ const EMOTION_COLORS: Record<string, string> = { attentive: "#10b981", engaged: 
 export default function LivePage() {
   const { isConnected, detections, startSession, stopSession } = useWebSocket();
   const [streaming, setStreaming] = useState(false);
+  
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const [cameraStream, setCameraStream] = useState<MediaStream | null>(null);
+  const [cameraActive, setCameraActive] = useState(false);
 
   // Live KPI state
   const [kpis, setKpis] = useState({ fps: 0, latency: 0, detected: 0, present: 0, alerts: 0, avgEngagement: 0 });
@@ -21,6 +24,61 @@ export default function LivePage() {
   const [emotionDist, setEmotionDist] = useState<{name:string;value:number;color:string}[]>([]);
   const [studentEngagement, setStudentEngagement] = useState<{name:string;value:number;color:string}[]>([]);
   const [alertTimeline, setAlertTimeline] = useState<{time:string;count:number}[]>([]);
+
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const isSecure = window.location.protocol === 'https:' || window.location.hostname === 'localhost';
+      if (!isSecure) {
+        toast.error('Camera requires HTTPS. Please use secure connection.');
+      }
+    }
+
+    navigator.permissions?.query({ name: 'camera' as PermissionName })
+      .then((result) => {
+        if (result.state === 'denied') {
+          toast.error('Camera blocked. Go to browser Settings → Site Settings → Camera → Allow');
+        }
+      })
+      .catch(() => {});
+  }, []);
+
+  const startCamera = async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: {
+          width: { ideal: 1280 },
+          height: { ideal: 720 },
+          facingMode: 'environment'
+        },
+        audio: false
+      });
+      if (videoRef.current) {
+        videoRef.current.srcObject = stream;
+        videoRef.current.play();
+        setCameraStream(stream);
+        setCameraActive(true);
+      }
+    } catch (err: any) {
+      console.error('Camera error:', err);
+      if (err.name === 'NotAllowedError') {
+        toast.error('Camera permission denied. Please allow camera access in browser.');
+      } else if (err.name === 'NotFoundError') {
+        toast.error('No camera found on this device.');
+      } else if (err.name === 'NotReadableError') {
+        toast.error('Camera is in use by another app.');
+      } else {
+        toast.error('Camera error: ' + err.message);
+      }
+    }
+  };
+
+  const stopCamera = () => {
+    if (cameraStream) {
+      cameraStream.getTracks().forEach(track => track.stop());
+      setCameraStream(null);
+      setCameraActive(false);
+    }
+  };
 
   // Update analytics every 2s from detections
   useEffect(() => {
@@ -53,8 +111,17 @@ export default function LivePage() {
   }, [detections]);
 
   const toggleStream = () => {
-    if (streaming) { stopSession(); setStreaming(false); toast("Stream stopped", { duration: 2000 }); }
-    else { startSession("demo-session-id"); setStreaming(true); toast("Stream started — AI pipeline active", { duration: 2000 }); }
+    if (streaming) { 
+      stopSession(); 
+      stopCamera();
+      setStreaming(false); 
+      toast("Stream stopped", { duration: 2000 }); 
+    } else { 
+      startSession("demo-session-id"); 
+      startCamera();
+      setStreaming(true); 
+      toast("Stream started — AI pipeline active", { duration: 2000 }); 
+    }
   };
 
   const kpiCards = [
@@ -87,7 +154,22 @@ export default function LivePage() {
       </div>
 
       {/* Video Feed */}
-      <div className="h-[60vh] min-h-[400px]"><VideoStream /></div>
+      <div className="h-[60vh] min-h-[400px] rounded-xl overflow-hidden bg-black border border-white/[0.06] relative">
+        <video
+          ref={videoRef}
+          autoPlay
+          playsInline
+          muted
+          style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+        />
+        {!cameraActive && (
+          <div className="absolute inset-0 flex flex-col items-center justify-center text-[#475569] z-20">
+            <Camera className="w-10 h-10 mb-3 opacity-50" />
+            <p className="text-sm font-medium text-white">Camera Offline</p>
+            <p className="text-xs mt-1">Start a session to activate the live feed</p>
+          </div>
+        )}
+      </div>
 
       {/* ── Live KPI Cards ── */}
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
