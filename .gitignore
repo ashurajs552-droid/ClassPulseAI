@@ -1,0 +1,72 @@
+# ── Dependencies ──────────────────────────────────────────────
+node_modules/
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+*.egg-info/
+
+# ── Environment variables (secrets!) ─────────────────────────
+.env
+.env.local
+.env.production
+.env.*.local
+frontend/.env.local
+frontend/.env.production
+backend/.env
+
+# ── Build output ─────────────────────────────────────────────
+.next/
+out/
+dist/
+build/
+*.tsbuildinfo
+
+# ── AI Models (large binaries — use Railway volume) ──────────
+backend/models/*.pth
+backend/models/*.pkl
+backend/models/*.pt
+backend/models/*.onnx
+backend/models/*.h5
+!backend/models/__init__.py
+!backend/models/schemas.py
+!backend/models/emotion_model.py
+!backend/models/face_model.py
+
+# ── Data (not committed) ─────────────────────────────────────
+data/
+backend/data/
+*.csv
+*.parquet
+
+# ── Logs ─────────────────────────────────────────────────────
+logs/
+*.log
+
+# ── IDE ──────────────────────────────────────────────────────
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+
+# ── TensorBoard ─────────────────────────────────────────────
+backend/models/runs/
+
+# ── Vercel ───────────────────────────────────────────────────
+.vercel/
+
+# ── Railway ──────────────────────────────────────────────────
+.railway/
+
+# ── Testing ──────────────────────────────────────────────────
+coverage/
+htmlcov/
+.pytest_cache/
+.coverage
+
+# ── Misc ─────────────────────────────────────────────────────
+*.bak
+*.tmp
