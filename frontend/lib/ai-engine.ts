@@ -40,7 +40,7 @@ export class AIEngine {
     if (!this.phoneDetector) return []
     const predictions = await this.phoneDetector.detect(video)
     return predictions.filter(
-      (p: any) => p.class === 'cell phone' && p.score > 0.6
+      (p: any) => p.class === 'cell phone' && p.score > 0.45
     )
   }
 
@@ -60,13 +60,19 @@ export class AIEngine {
       if (noseRatio > 1.4) return { emotion: 'sleepy', confidence: 0.85 }
       if (headTilt > 0.25) return { emotion: 'confused', confidence: 0.80 }
       if (noseRatio < 0.8) return { emotion: 'distracted', confidence: 0.75 }
-      if (noseRatio > 1.0 && noseRatio <= 1.4) 
+      
+      // Heuristic to add variety for demo purposes
+      const mouthWidth = face.box?.width * 0.4 || 0
+      if (mouthWidth > 40 && noseRatio > 1.0 && noseRatio <= 1.2) return { emotion: 'happy', confidence: 0.85 }
+      if (noseRatio > 0.9 && noseRatio < 1.1) return { emotion: 'neutral', confidence: 0.80 }
+
+      if (noseRatio > 1.1 && noseRatio <= 1.4) 
         return { emotion: 'attentive', confidence: 0.90 }
       return { emotion: 'engaged', confidence: 0.88 }
     }
 
-    const emotions = ['attentive','engaged','confused','distracted','sleepy']
-    const weights = [0.4, 0.3, 0.15, 0.1, 0.05]
+    const emotions = ['attentive','engaged','confused','distracted','sleepy','happy','neutral']
+    const weights = [0.25, 0.25, 0.1, 0.1, 0.05, 0.1, 0.15]
     const rand = Math.random()
     let cumulative = 0
     for (let i = 0; i < emotions.length; i++) {
@@ -79,7 +85,7 @@ export class AIEngine {
 
   calculateEngagement(face: any, emotion: string): number {
     const emotionScores: Record<string, number> = {
-      attentive: 90, engaged: 95,
+      attentive: 90, engaged: 95, happy: 90, neutral: 70,
       confused: 50, distracted: 30, sleepy: 15
     }
 

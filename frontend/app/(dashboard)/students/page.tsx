@@ -188,16 +188,27 @@ export default function StudentsPage() {
 
       // Upload photos to Supabase Storage
       const uploadedUrls: string[] = [];
+      let useBase64Fallback = false;
       for (let i = 0; i < photos.length; i++) {
-        const blob = b64toBlob(photos[i], 'image/jpeg');
-        const fileName = `${form.usn.toUpperCase()}_face_${i+1}_${Date.now()}.jpg`;
-        const { data: uploadData, error: uploadErr } = await supabase.storage
-          .from('student-photos')
-          .upload(fileName, blob, { contentType: 'image/jpeg' });
-          
-        if (uploadErr) throw uploadErr;
-        const { data: { publicUrl } } = supabase.storage.from('student-photos').getPublicUrl(fileName);
-        uploadedUrls.push(publicUrl);
+        try {
+          const blob = b64toBlob(photos[i], 'image/jpeg');
+          const fileName = `${form.usn.toUpperCase()}_face_${i+1}_${Date.now()}.jpg`;
+          const { data: uploadData, error: uploadErr } = await supabase.storage
+            .from('student-photos')
+            .upload(fileName, blob, { contentType: 'image/jpeg' });
+            
+          if (uploadErr) throw uploadErr;
+          const { data: { publicUrl } } = supabase.storage.from('student-photos').getPublicUrl(fileName);
+          uploadedUrls.push(publicUrl);
+        } catch (uploadErr: any) {
+          console.warn("Storage upload failed, falling back to base64:", uploadErr);
+          useBase64Fallback = true;
+          break;
+        }
+      }
+
+      if (useBase64Fallback) {
+        toast.warning("Storage bucket 'student-photos' not found. Falling back to local data encoding.");
       }
 
       const { error } = await supabase.from("students").insert({
@@ -207,7 +218,7 @@ export default function StudentsPage() {
         semester: form.semester,
         department: form.department,
         gender: form.gender,
-        photo_url: uploadedUrls[0],
+        photo_url: useBase64Fallback ? photos[0] : uploadedUrls[0],
         is_active: true,
       });
 

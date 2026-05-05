@@ -3,13 +3,13 @@
 import { useState, useEffect, useRef } from "react";
 import { motion } from "framer-motion";
 import { emotionColor, emotionEmoji, engagementGrade, cn } from "@/lib/utils";
-import { Wifi, WifiOff, Play, Square, Phone, Brain, Users, Activity, Clock, AlertTriangle, Eye, Camera, Loader2 } from "lucide-react";
+import { Wifi, WifiOff, Play, Square, Phone, Brain, Users, Activity, Clock, AlertTriangle, Eye, Camera, Loader2, Download } from "lucide-react";
 import { toast } from "sonner";
 import { LineChart, Line, AreaChart, Area, PieChart, Pie, Cell, BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer } from "recharts";
 import { aiEngine } from "@/lib/ai-engine";
 import { supabase } from "@/lib/supabase";
 
-const EMOTION_COLORS: Record<string, string> = { attentive: "#10b981", engaged: "#06b6d4", confused: "#f59e0b", distracted: "#ef4444", sleepy: "#8b5cf6" };
+const EMOTION_COLORS: Record<string, string> = { attentive: "#10b981", engaged: "#06b6d4", happy: "#f472b6", neutral: "#94a3b8", confused: "#f59e0b", distracted: "#ef4444", sleepy: "#8b5cf6" };
 const PROCESS_FPS = 30;
 const PROCESS_INTERVAL = 1000 / PROCESS_FPS;
 
@@ -153,10 +153,13 @@ export default function LivePage() {
         ? Math.round(detections.reduce((s: number, d: any) => s + d.score, 0) / detections.length)
         : 0;
 
-      const emotionCounts = detections.reduce((acc: any, d: any) => {
-        acc[d.emotion] = (acc[d.emotion] || 0) + 1;
-        return acc;
-      }, {});
+      const emotionCounts: Record<string, number> = {
+        attentive: 0, engaged: 0, happy: 0, neutral: 0, confused: 0, distracted: 0, sleepy: 0
+      };
+      detections.forEach((d: any) => {
+        if (emotionCounts[d.emotion] !== undefined) emotionCounts[d.emotion]++;
+        else emotionCounts[d.emotion] = 1;
+      });
 
       setDetectedCount(faces.length);
       setPhoneCount(phones.length);
@@ -164,7 +167,10 @@ export default function LivePage() {
       setEmotionData(emotionCounts);
       setSleepyCount(emotionCounts['sleepy'] || 0);
       setConfusedCount(emotionCounts['confused'] || 0);
-      setFps(Math.round(1000 / elapsed));
+      
+      const currentFps = Math.round(1000 / (elapsed || 1));
+      setFps(prev => prev === 0 ? currentFps : Math.round(prev * 0.9 + currentFps * 0.1));
+      
       setLatency(Math.round(performance.now() - start));
       setCurrentDetections(detections);
 
@@ -366,10 +372,28 @@ export default function LivePage() {
     { icon: Activity, label: "FPS", value: fps.toString(), color: "#10b981" },
     { icon: Clock, label: "Latency", value: `${latency}ms`, color: "#06b6d4" },
     { icon: Eye, label: "Detected", value: detectedCount.toString(), color: "#6366f1" },
-    { icon: Users, label: "Present", value: detectedCount.toString(), color: "#8b5cf6" },
+    { icon: Phone, label: "Phones", value: phoneCount.toString(), color: "#ef4444" },
     { icon: AlertTriangle, label: "Alerts", value: (phoneCount + sleepyCount + confusedCount).toString(), color: "#ef4444" },
     { icon: Brain, label: "Avg Engagement", value: `${avgEngagement}%`, color: "#f59e0b" },
   ];
+
+  const downloadCSV = () => {
+    if (engagementHistory.length === 0) {
+      toast.error("No data to download yet.");
+      return;
+    }
+    const header = "Time,Avg Engagement\n";
+    const rows = engagementHistory.map(row => `${row.time},${row.value}`).join("\n");
+    const blob = new Blob([header + rows], { type: 'text/csv' });
+    const url = window.URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.setAttribute('hidden', '');
+    a.setAttribute('href', url);
+    a.setAttribute('download', `classpulse-stats-${Date.now()}.csv`);
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+  };
 
   const emotionChartData = Object.entries(emotionData).map(([name, value]) => ({
     name, value, color: EMOTION_COLORS[name] || "#6366f1"
@@ -389,6 +413,9 @@ export default function LivePage() {
           <p className="text-sm text-[#64748b] mt-0.5">Real-time classroom surveillance with AI overlays</p>
         </div>
         <div className="flex items-center gap-3">
+          <button onClick={downloadCSV} className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white/[0.04] hover:bg-white/[0.08] text-xs font-medium text-[#94a3b8] hover:text-white transition">
+            <Download className="w-3.5 h-3.5" /> CSV Export
+          </button>
           <div className={cn("flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium", isSessionActive ? "bg-[#10b981]/10 text-[#10b981]" : "bg-[#ef4444]/10 text-[#ef4444]")}>
             {isSessionActive ? <Wifi className="w-3 h-3" /> : <WifiOff className="w-3 h-3" />}
             {isSessionActive ? "AI Active" : "Standby"}
