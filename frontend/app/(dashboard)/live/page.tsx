@@ -44,6 +44,7 @@ export default function LivePage() {
   const sessionIdRef = useRef<string|null>(null);
   const dbSaveInterval = useRef<any>(null);
   const pendingData = useRef<any[]>([]);
+  const streamingRef = useRef(false);
 
   useEffect(() => {
     if (typeof window !== 'undefined') {
@@ -116,7 +117,7 @@ export default function LivePage() {
   };
 
   const processFrame = async (timestamp: number) => {
-    if (!sessionIdRef.current) return;
+    if (!streamingRef.current) return;
     
     const elapsed = timestamp - lastProcessTime.current;
     if (elapsed < PROCESS_INTERVAL) {
@@ -295,7 +296,7 @@ export default function LivePage() {
         setCameraStream(stream);
       }
 
-      const { data: session } = await supabase
+      const { data: session, error } = await supabase
         .from('sessions')
         .insert({
           teacher_id: user?.id,
@@ -306,14 +307,20 @@ export default function LivePage() {
         .select()
         .single();
 
+      if (error) {
+        toast.error('Database Warning: ' + error.message);
+      }
+
       if (session) {
         sessionIdRef.current = session.id;
         setCurrentSession(session);
         setIsSessionActive(true);
-        setStreaming(true);
-        animFrameRef.current = requestAnimationFrame(processFrame);
-        toast.success('Session started! AI active at 30 FPS');
       }
+
+      setStreaming(true);
+      streamingRef.current = true;
+      animFrameRef.current = requestAnimationFrame(processFrame);
+      toast.success('Session started! AI active at 30 FPS');
     } catch (err: any) {
       toast.error('Failed to start: ' + err.message);
     } finally {
@@ -327,6 +334,7 @@ export default function LivePage() {
     clearInterval(dbSaveInterval.current);
     setIsSessionActive(false);
     setStreaming(false);
+    streamingRef.current = false;
 
     if (cameraStream) {
       cameraStream.getTracks().forEach(t => t.stop());
