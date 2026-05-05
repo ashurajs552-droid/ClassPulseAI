@@ -27,18 +27,18 @@ export default function StudentsPage() {
   const [showAdd, setShowAdd] = useState(false);
   const [deleteConfirm, setDeleteConfirm] = useState<string|null>(null);
   const [sortKey, setSortKey] = useState<"full_name"|"attendance_pct"|"engagement_avg">("full_name");
+  
   const [form, setForm] = useState(emptyForm);
-  const [photo, setPhoto] = useState<string|null>(null);
-  const [photoFile, setPhotoFile] = useState<File|null>(null);
+  const [photos, setPhotos] = useState<string[]>([]);
   const [submitting, setSubmitting] = useState(false);
   const [cameraOpen, setCameraOpen] = useState(false);
   const [errors, setErrors] = useState<Record<string,string>>({});
+  
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
   const [stream, setStream] = useState<MediaStream | null>(null);
 
-  // Load students from Supabase
   useEffect(() => {
     fetchStudents();
 
@@ -75,7 +75,6 @@ export default function StudentsPage() {
     }
   };
 
-  // Validation
   const validate = (): boolean => {
     const errs: Record<string,string> = {};
     if (!form.full_name || form.full_name.length < 3 || !/^[a-zA-Z\s]+$/.test(form.full_name))
@@ -84,25 +83,20 @@ export default function StudentsPage() {
       errs.usn = "USN must be alphanumeric";
     if (!form.phone_number || !/^[6-9]\d{9}$/.test(form.phone_number))
       errs.phone_number = "Phone must be 10 digits starting with 6-9";
-    if (!photo) errs.photo = "Please capture or upload a face photo";
+    if (photos.length < 3) errs.photo = "Please capture exactly 3 face photos";
     setErrors(errs);
     return Object.keys(errs).length === 0;
   };
 
-  // Camera
   const openCamera = async () => {
+    if (photos.length >= 3) return;
     setCameraOpen(true);
     try {
       const mediaStream = await navigator.mediaDevices.getUserMedia({
-        video: {
-          width: { ideal: 640 },
-          height: { ideal: 480 },
-          facingMode: 'user'
-        },
+        video: { width: { ideal: 640 }, height: { ideal: 480 }, facingMode: 'user' },
         audio: false
       });
       setStream(mediaStream);
-      // Wait for video element to mount
       setTimeout(() => {
         if (videoRef.current) {
           videoRef.current.srcObject = mediaStream;
@@ -124,13 +118,18 @@ export default function StudentsPage() {
     canvas.height = video.videoHeight || 480;
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
-    // Mirror the image (selfie mode)
+    
     ctx.translate(canvas.width, 0);
     ctx.scale(-1, 1);
     ctx.drawImage(video, 0, 0);
     const dataUrl = canvas.toDataURL('image/jpeg', 0.9);
-    setPhoto(dataUrl);
-    stopCameraStream();
+    
+    setPhotos(prev => [...prev, dataUrl]);
+    
+    if (photos.length === 2) {
+      stopCameraStream();
+      setCameraOpen(false);
+    }
   };
 
   const stopCameraStream = () => {
@@ -145,52 +144,77 @@ export default function StudentsPage() {
     setCameraOpen(false);
   };
 
-  const retakePhoto = async () => {
-    setPhoto(null);
-    setPhotoFile(null);
-    await openCamera();
+  const deletePhoto = (index: number) => {
+    setPhotos(prev => prev.filter((_, i) => i !== index));
   };
 
-  // File upload
   const handleFile = (file: File) => {
+    if (photos.length >= 3) return;
     if (file.size > 5 * 1024 * 1024) { toast.error("Photo must be under 5MB"); return; }
     if (!file.type.startsWith("image/")) { toast.error("File must be an image"); return; }
-    setPhotoFile(file);
     const reader = new FileReader();
-    reader.onload = () => setPhoto(reader.result as string);
+    reader.onload = () => setPhotos(prev => [...prev, reader.result as string]);
     reader.readAsDataURL(file);
   };
 
   const handleDrop = useCallback((e: React.DragEvent) => {
     e.preventDefault();
+    if (photos.length >= 3) return;
     const file = e.dataTransfer.files[0];
     if (file) handleFile(file);
-  }, []);
+  }, [photos.length]);
 
-  // Submit
+  const b64toBlob = (b64Data: string, contentType = '', sliceSize = 512) => {
+    const byteCharacters = atob(b64Data.split(',')[1]);
+    const byteArrays = [];
+    for (let offset = 0; offset < byteCharacters.length; offset += sliceSize) {
+      const slice = byteCharacters.slice(offset, offset + sliceSize);
+      const byteNumbers = new Array(slice.length);
+      for (let i = 0; i < slice.length; i++) {
+        byteNumbers[i] = slice.charCodeAt(i);
+      }
+      const byteArray = new Uint8Array(byteNumbers);
+      byteArrays.push(byteArray);
+    }
+    return new Blob(byteArrays, { type: contentType });
+  };
+
   const handleAdd = async () => {
     if (!validate()) return;
     setSubmitting(true);
     try {
-      // Check USN uniqueness
       const { data: existing } = await supabase.from("students").select("id").eq("usn", form.usn.toUpperCase()).single();
       if (existing) { toast.error("USN already exists"); setSubmitting(false); return; }
 
-      const { data, error } = await supabase.from("students").insert({
+      // Upload photos to Supabase Storage
+      const uploadedUrls: string[] = [];
+      for (let i = 0; i < photos.length; i++) {
+        const blob = b64toBlob(photos[i], 'image/jpeg');
+        const fileName = `${form.usn.toUpperCase()}_face_${i+1}_${Date.now()}.jpg`;
+        const { data: uploadData, error: uploadErr } = await supabase.storage
+          .from('student-photos')
+          .upload(fileName, blob, { contentType: 'image/jpeg' });
+          
+        if (uploadErr) throw uploadErr;
+        const { data: { publicUrl } } = supabase.storage.from('student-photos').getPublicUrl(fileName);
+        uploadedUrls.push(publicUrl);
+      }
+
+      const { error } = await supabase.from("students").insert({
         full_name: form.full_name.trim(),
         usn: form.usn.toUpperCase(),
         phone_number: form.phone_number,
         semester: form.semester,
         department: form.department,
         gender: form.gender,
+        photo_url: uploadedUrls[0],
         is_active: true,
-        enrollment_date: new Date().toISOString().split("T")[0],
-      }).select().single();
+      });
 
       if (error) throw error;
 
       toast.success(`Student ${form.full_name} registered successfully!`);
-      setForm(emptyForm); setPhoto(null); setPhotoFile(null); setShowAdd(false); setErrors({});
+      setForm(emptyForm); setPhotos([]); setShowAdd(false); setErrors({});
       fetchStudents();
     } catch (e: any) {
       toast.error(e.message || "Failed to add student");
@@ -227,7 +251,6 @@ export default function StudentsPage() {
         </motion.button>
       </div>
 
-      {/* Search + Sort */}
       <div className="flex items-center gap-3 flex-wrap">
         <div className="relative flex-1 min-w-[200px]">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[#475569]" />
@@ -240,7 +263,6 @@ export default function StudentsPage() {
         </div>
       </div>
 
-      {/* Table */}
       <div className="glass overflow-hidden">
         {loading ? (
           <div className="flex items-center justify-center py-16"><Loader2 className="w-6 h-6 text-[#6366f1] animate-spin" /></div>
@@ -307,40 +329,41 @@ export default function StudentsPage() {
         )}
       </div>
 
-      {/* Add Modal */}
       <AnimatePresence>
         {showAdd && (
           <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm" onClick={() => { setShowAdd(false); stopCamera(); }}>
-            <motion.div initial={{ scale: 0.9, y: 20 }} animate={{ scale: 1, y: 0 }} exit={{ scale: 0.9, y: 20 }} onClick={e => e.stopPropagation()} className="glass-strong w-full max-w-lg p-6 max-h-[90vh] overflow-y-auto">
+            <motion.div initial={{ scale: 0.9, y: 20 }} animate={{ scale: 1, y: 0 }} exit={{ scale: 0.9, y: 20 }} onClick={e => e.stopPropagation()} className="glass-strong w-full max-w-xl p-6 max-h-[90vh] overflow-y-auto">
               <div className="flex items-center justify-between mb-5">
                 <h3 className="text-lg font-semibold text-white">Register Student</h3>
                 <button onClick={() => { setShowAdd(false); stopCamera(); }} className="text-[#64748b] hover:text-white"><X className="w-5 h-5" /></button>
               </div>
 
               <div className="space-y-4">
-                {/* Full Name */}
-                <div>
-                  <label className="block text-xs text-[#94a3b8] mb-1.5 font-medium">Full Name <span className="text-[#ef4444]">*</span></label>
-                  <input value={form.full_name} onChange={e => setForm({...form, full_name: e.target.value})} placeholder="John Doe" className={cn("w-full px-3 py-2.5 rounded-xl bg-white/[0.03] border text-sm text-white placeholder:text-[#475569]", errors.full_name ? "border-[#ef4444]/50" : "border-white/[0.06]")} />
-                  {errors.full_name && <p className="text-[10px] text-[#ef4444] mt-1">{errors.full_name}</p>}
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-xs text-[#94a3b8] mb-1.5 font-medium">Full Name <span className="text-[#ef4444]">*</span></label>
+                    <input value={form.full_name} onChange={e => setForm({...form, full_name: e.target.value})} placeholder="John Doe" className={cn("w-full px-3 py-2.5 rounded-xl bg-white/[0.03] border text-sm text-white placeholder:text-[#475569]", errors.full_name ? "border-[#ef4444]/50" : "border-white/[0.06]")} />
+                  </div>
+                  <div>
+                    <label className="block text-xs text-[#94a3b8] mb-1.5 font-medium">USN <span className="text-[#ef4444]">*</span></label>
+                    <input value={form.usn} onChange={e => setForm({...form, usn: e.target.value.toUpperCase()})} placeholder="1RV22CS001" className={cn("w-full px-3 py-2.5 rounded-xl bg-white/[0.03] border text-sm text-white placeholder:text-[#475569] font-mono uppercase", errors.usn ? "border-[#ef4444]/50" : "border-white/[0.06]")} />
+                  </div>
                 </div>
 
-                {/* USN */}
-                <div>
-                  <label className="block text-xs text-[#94a3b8] mb-1.5 font-medium">USN <span className="text-[#ef4444]">*</span></label>
-                  <input value={form.usn} onChange={e => setForm({...form, usn: e.target.value.toUpperCase()})} placeholder="1RV22CS001" className={cn("w-full px-3 py-2.5 rounded-xl bg-white/[0.03] border text-sm text-white placeholder:text-[#475569] font-mono uppercase", errors.usn ? "border-[#ef4444]/50" : "border-white/[0.06]")} />
-                  {errors.usn && <p className="text-[10px] text-[#ef4444] mt-1">{errors.usn}</p>}
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-xs text-[#94a3b8] mb-1.5 font-medium">Phone Number <span className="text-[#ef4444]">*</span></label>
+                    <input type="tel" value={form.phone_number} onChange={e => { const v = e.target.value.replace(/\D/g,"").slice(0,10); setForm({...form, phone_number: v}); }} placeholder="9876543210" maxLength={10} className={cn("w-full px-3 py-2.5 rounded-xl bg-white/[0.03] border text-sm text-white placeholder:text-[#475569]", errors.phone_number ? "border-[#ef4444]/50" : "border-white/[0.06]")} />
+                  </div>
+                  <div>
+                    <label className="block text-xs text-[#94a3b8] mb-1.5 font-medium">Gender</label>
+                    <select value={form.gender} onChange={e => setForm({...form, gender: e.target.value})} className="w-full px-3 py-2.5 rounded-xl bg-white/[0.03] border border-white/[0.06] text-sm text-white">
+                      {GENDERS.map(g => <option key={g} value={g} className="bg-[#0f1117]">{g}</option>)}
+                    </select>
+                  </div>
                 </div>
 
-                {/* Phone */}
-                <div>
-                  <label className="block text-xs text-[#94a3b8] mb-1.5 font-medium">Phone Number <span className="text-[#ef4444]">*</span></label>
-                  <input type="tel" value={form.phone_number} onChange={e => { const v = e.target.value.replace(/\D/g,"").slice(0,10); setForm({...form, phone_number: v}); }} placeholder="9876543210" maxLength={10} className={cn("w-full px-3 py-2.5 rounded-xl bg-white/[0.03] border text-sm text-white placeholder:text-[#475569]", errors.phone_number ? "border-[#ef4444]/50" : "border-white/[0.06]")} />
-                  {errors.phone_number && <p className="text-[10px] text-[#ef4444] mt-1">{errors.phone_number}</p>}
-                </div>
-
-                {/* Semester + Department */}
-                <div className="grid grid-cols-2 gap-3">
+                <div className="grid grid-cols-2 gap-4">
                   <div>
                     <label className="block text-xs text-[#94a3b8] mb-1.5 font-medium">Semester</label>
                     <select value={form.semester} onChange={e => setForm({...form, semester: e.target.value})} className="w-full px-3 py-2.5 rounded-xl bg-white/[0.03] border border-white/[0.06] text-sm text-white">
@@ -355,83 +378,72 @@ export default function StudentsPage() {
                   </div>
                 </div>
 
-                {/* Gender */}
                 <div>
-                  <label className="block text-xs text-[#94a3b8] mb-1.5 font-medium">Gender</label>
-                  <div className="flex gap-3">
-                    {GENDERS.map(g => (
-                      <label key={g} className={cn("flex items-center gap-2 px-4 py-2.5 rounded-xl border text-sm cursor-pointer transition", form.gender === g ? "border-[#6366f1]/50 bg-[#6366f1]/10 text-white" : "border-white/[0.06] bg-white/[0.02] text-[#94a3b8] hover:border-white/[0.12]")}>
-                        <div className={cn("w-4 h-4 rounded-full border-2 flex items-center justify-center", form.gender === g ? "border-[#6366f1]" : "border-[#475569]")}>
-                          {form.gender === g && <div className="w-2 h-2 rounded-full bg-[#6366f1]" />}
-                        </div>
-                        {g}
-                        <input type="radio" name="gender" value={g} checked={form.gender === g} onChange={() => setForm({...form, gender: g})} className="hidden" />
-                      </label>
+                  <div className="flex items-center justify-between mb-1.5">
+                    <label className="block text-xs text-[#94a3b8] font-medium">Face Photos <span className="text-[#ef4444]">*</span></label>
+                    <span className="text-[10px] font-medium text-[#6366f1]">
+                      {photos.length < 3 ? `Captured ${photos.length}/3 - Take ${3 - photos.length} more` : "3/3 Captured"}
+                    </span>
+                  </div>
+
+                  <div className="grid grid-cols-3 gap-3 mb-3">
+                    {[0, 1, 2].map(i => (
+                      <div key={i} className="aspect-square rounded-xl border border-white/[0.08] overflow-hidden bg-white/[0.02] relative group">
+                        {photos[i] ? (
+                          <>
+                            <img src={photos[i]} alt={`Capture ${i+1}`} className="w-full h-full object-cover" style={{ transform: 'scaleX(-1)' }} />
+                            <button onClick={() => deletePhoto(i)} className="absolute top-1 right-1 w-6 h-6 rounded-full bg-black/60 flex items-center justify-center text-white opacity-0 group-hover:opacity-100 transition"><X className="w-3 h-3" /></button>
+                          </>
+                        ) : (
+                          <div className="w-full h-full flex items-center justify-center text-[#475569]">
+                            <Camera className="w-6 h-6 opacity-30" />
+                          </div>
+                        )}
+                      </div>
                     ))}
                   </div>
-                </div>
 
-                {/* Face Photo */}
-                <div>
-                  <label className="block text-xs text-[#94a3b8] mb-1.5 font-medium">Face Photo <span className="text-[#ef4444]">*</span></label>
-                  {!cameraOpen && !photo && (
-                    <div className="flex gap-3">
-                      <div onClick={openCamera} className="flex-1 border-2 border-dashed border-[#6366f1]/50 rounded-xl p-8 text-center cursor-pointer hover:border-[#818cf8] transition">
-                        <Camera className="w-8 h-8 text-[#475569] mx-auto mb-2" />
-                        <p className="text-xs text-white mb-1">Click to open camera</p>
-                        <p className="text-[10px] text-[#64748b]">or drag & drop photo</p>
-                      </div>
-                      <div onClick={() => fileRef.current?.click()} onDragOver={e => e.preventDefault()} onDrop={handleDrop} className="flex-1 border-2 border-dashed border-white/[0.08] rounded-xl p-8 text-center cursor-pointer hover:border-[#6366f1]/30 transition">
-                        <Upload className="w-8 h-8 text-[#475569] mx-auto mb-2" />
-                        <p className="text-xs text-white mb-1">Upload Photo</p>
-                        <p className="text-[10px] text-[#64748b]">Max 5MB image</p>
-                      </div>
-                      <input ref={fileRef} type="file" accept="image/*" className="hidden" onChange={e => { if (e.target.files?.[0]) handleFile(e.target.files[0]); }} />
+                  {photos.length < 3 && (
+                    <div className="mb-3">
+                      {cameraOpen ? (
+                        <div className="relative rounded-xl overflow-hidden border border-white/[0.08]">
+                          <video ref={videoRef} autoPlay playsInline muted style={{ width: '100%', transform: 'scaleX(-1)', borderRadius: '12px' }} />
+                          <button onClick={capturePhoto} className="absolute bottom-4 left-1/2 -translate-x-1/2 bg-[#6366f1] hover:bg-[#818cf8] text-white px-6 py-2 rounded-full text-xs font-medium flex items-center gap-1.5 transition shadow-lg">
+                            <Camera className="w-4 h-4" /> Capture {photos.length + 1}/3
+                          </button>
+                        </div>
+                      ) : (
+                        <div className="flex gap-3">
+                          <button onClick={openCamera} className="flex-1 border-2 border-dashed border-[#6366f1]/50 rounded-xl p-6 text-center hover:border-[#818cf8] transition">
+                            <Camera className="w-6 h-6 text-[#6366f1] mx-auto mb-2" />
+                            <p className="text-xs text-white mb-1">Open Camera</p>
+                          </button>
+                          <div onClick={() => fileRef.current?.click()} onDragOver={e => e.preventDefault()} onDrop={handleDrop} className="flex-1 border-2 border-dashed border-white/[0.08] rounded-xl p-6 text-center hover:border-white/[0.2] transition cursor-pointer">
+                            <Upload className="w-6 h-6 text-[#475569] mx-auto mb-2" />
+                            <p className="text-xs text-[#94a3b8] mb-1">Upload</p>
+                          </div>
+                          <input ref={fileRef} type="file" accept="image/*" className="hidden" onChange={e => { if (e.target.files?.[0]) handleFile(e.target.files[0]); }} />
+                        </div>
+                      )}
                     </div>
                   )}
 
-                  {cameraOpen && !photo && (
-                    <div className="relative rounded-xl overflow-hidden border border-white/[0.08]">
-                      <video
-                        ref={videoRef}
-                        autoPlay
-                        playsInline
-                        muted
-                        style={{ 
-                          width: '100%', 
-                          transform: 'scaleX(-1)',
-                          borderRadius: '12px'
-                        }}
-                      />
-                      <button onClick={capturePhoto} className="absolute bottom-4 left-1/2 -translate-x-1/2 bg-[#6366f1] hover:bg-[#818cf8] text-white px-6 py-2 rounded-full text-xs font-medium flex items-center gap-1.5 transition shadow-lg">
-                        <Camera className="w-4 h-4" /> Capture
-                      </button>
-                    </div>
-                  )}
-
-                  {photo && (
-                    <div className="relative">
-                      <img src={photo} alt="Captured" className="w-full rounded-xl border border-white/[0.08]" style={{ transform: 'scaleX(-1)' }} />
-                      <button onClick={retakePhoto} className="mt-2 w-full border border-[#6366f1] text-[#818cf8] py-2.5 rounded-lg text-xs font-medium hover:bg-[#6366f1]/10 transition flex items-center justify-center gap-1.5">
-                        🔄 Retake Photo
-                      </button>
-                    </div>
-                  )}
-                  {errors.photo && <p className="text-[10px] text-[#ef4444] mt-1">{errors.photo}</p>}
+                  {errors.photo && <p className="text-[10px] text-[#ef4444]">{errors.photo}</p>}
                 </div>
 
                 <canvas ref={canvasRef} className="hidden" />
 
-                <button onClick={handleAdd} disabled={submitting} className="w-full py-2.5 rounded-xl bg-gradient-to-r from-[#6366f1] to-[#8b5cf6] text-white font-medium text-sm disabled:opacity-50 flex items-center justify-center gap-2">
-                  {submitting ? <><Loader2 className="w-4 h-4 animate-spin" /> Registering…</> : "Register Student"}
-                </button>
+                {photos.length === 3 && (
+                  <button onClick={handleAdd} disabled={submitting} className="w-full py-2.5 rounded-xl bg-gradient-to-r from-[#6366f1] to-[#8b5cf6] text-white font-medium text-sm disabled:opacity-50 flex items-center justify-center gap-2">
+                    {submitting ? <><Loader2 className="w-4 h-4 animate-spin" /> Registering & Uploading…</> : "Register Student"}
+                  </button>
+                )}
               </div>
             </motion.div>
           </motion.div>
         )}
       </AnimatePresence>
 
-      {/* Delete Confirm */}
       <AnimatePresence>
         {deleteConfirm && (
           <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm" onClick={() => setDeleteConfirm(null)}>

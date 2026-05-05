@@ -24,7 +24,7 @@ export default function AttendancePage() {
 
   const fetchSessions = async () => {
     try {
-      const { data } = await supabase.from("sessions").select("id, started_at, classes(name)").order("started_at", { ascending: false });
+      const { data } = await supabase.from("sessions").select("id, title, started_at").order("started_at", { ascending: false });
       if (data && data.length > 0) {
         setSessions(data);
         setSelectedSession(data[0].id);
@@ -100,7 +100,7 @@ export default function AttendancePage() {
             <select value={selectedSession} onChange={e => setSelectedSession(e.target.value)} className="px-3 py-2 rounded-xl bg-white/[0.04] border border-white/[0.08] text-sm text-white">
               {sessions.map(s => (
                 <option key={s.id} value={s.id} className="bg-[#0f1117]">
-                  {s.classes?.name || "Unknown"} — {new Date(s.started_at).toLocaleString()}
+                  {s.title || "Session"} — {new Date(s.started_at).toLocaleString()}
                 </option>
               ))}
             </select>

@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from "react";
 import { motion } from "framer-motion";
-import { AreaChart, Area, BarChart, Bar, RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis, Radar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, Cell } from "recharts";
+import { AreaChart, Area, BarChart, Bar, PieChart, Pie, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell, CartesianGrid } from "recharts";
 import { Inbox, Loader2 } from "lucide-react";
 import { emotionColor } from "@/lib/utils";
 import { supabase } from "@/lib/supabase";
@@ -25,25 +25,78 @@ function Tip({ active, payload, label }: { active?: boolean; payload?: { value: 
 }
 
 export default function AnalyticsPage() {
-  const [range, setRange] = useState<"7d" | "30d" | "90d">("30d");
+  const [range, setRange] = useState<"7d" | "30d" | "90d">("7d");
   const [loading, setLoading] = useState(true);
   const [hasData, setHasData] = useState(false);
 
+  const [engagementData, setEngagementData] = useState<any[]>([]);
+  const [emotionData, setEmotionData] = useState<any[]>([]);
+  const [phoneData, setPhoneData] = useState<any[]>([]);
+
   useEffect(() => {
-    // Check if we have any sessions/analytics data
-    const checkData = async () => {
-      setLoading(true);
-      try {
-        const { count } = await supabase.from("sessions").select("*", { count: "exact", head: true });
-        setHasData((count || 0) > 0);
-      } catch (e) {
-        console.error(e);
-      } finally {
-        setLoading(false);
-      }
-    };
-    checkData();
-  }, []);
+    fetchAnalytics();
+  }, [range]);
+
+  const fetchAnalytics = async () => {
+    setLoading(true);
+    const days = parseInt(range);
+    const since = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
+
+    try {
+      const [engagementRes, emotionsRes, phonesRes] = await Promise.all([
+        supabase.from('engagement_scores').select('score, timestamp').gte('timestamp', since).order('timestamp'),
+        supabase.from('emotion_logs').select('emotion, timestamp').gte('timestamp', since),
+        supabase.from('phone_detections').select('detected_at').gte('detected_at', since)
+      ]);
+
+      const rawEngagement = engagementRes.data || [];
+      const rawEmotions = emotionsRes.data || [];
+      const rawPhones = phonesRes.data || [];
+
+      setHasData(rawEngagement.length > 0 || rawEmotions.length > 0 || rawPhones.length > 0);
+
+      // Process Engagement Data (group by date)
+      const engByDate: Record<string, number[]> = {};
+      rawEngagement.forEach(d => {
+        const date = new Date(d.timestamp).toLocaleDateString();
+        if (!engByDate[date]) engByDate[date] = [];
+        engByDate[date].push(d.score);
+      });
+      const processedEng = Object.entries(engByDate).map(([date, scores]) => ({
+        date,
+        score: scores.reduce((a, b) => a + b, 0) / scores.length
+      }));
+      setEngagementData(processedEng);
+
+      // Process Emotion Data
+      const emoCounts: Record<string, number> = {};
+      rawEmotions.forEach(d => {
+        emoCounts[d.emotion] = (emoCounts[d.emotion] || 0) + 1;
+      });
+      const processedEmo = Object.entries(emoCounts).map(([name, value]) => ({
+        name,
+        value,
+        color: emotionColor(name)
+      }));
+      setEmotionData(processedEmo);
+
+      // Process Phone Data
+      const phoneByDate: Record<string, number> = {};
+      rawPhones.forEach(d => {
+        const date = new Date(d.detected_at).toLocaleDateString();
+        phoneByDate[date] = (phoneByDate[date] || 0) + 1;
+      });
+      const processedPhones = Object.entries(phoneByDate).map(([date, count]) => ({
+        date, count
+      }));
+      setPhoneData(processedPhones);
+
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setLoading(false);
+    }
+  };
 
   return (
     <div className="space-y-6">
@@ -69,52 +122,75 @@ export default function AnalyticsPage() {
         </div>
       ) : (
         <>
-          {/* Row 1: Engagement Trend + Emotion Patterns */}
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
             <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="glass p-5">
               <h3 className="text-sm font-semibold text-white mb-1">Engagement Trend</h3>
               <p className="text-[10px] text-[#64748b] mb-4">Daily average engagement score</p>
-              <div className="h-[240px] flex items-center justify-center text-sm text-[#475569]">
-                Collecting data...
+              <div className="h-[240px]">
+                {engagementData.length > 0 ? (
+                  <ResponsiveContainer width="100%" height="100%">
+                    <AreaChart data={engagementData}>
+                      <defs>
+                        <linearGradient id="colorScore" x1="0" y1="0" x2="0" y2="1">
+                          <stop offset="5%" stopColor="#6366f1" stopOpacity={0.3}/>
+                          <stop offset="95%" stopColor="#6366f1" stopOpacity={0}/>
+                        </linearGradient>
+                      </defs>
+                      <XAxis dataKey="date" tick={{ fill: "#475569", fontSize: 10 }} axisLine={false} tickLine={false} />
+                      <YAxis domain={[0, 100]} tick={{ fill: "#475569", fontSize: 10 }} axisLine={false} tickLine={false} />
+                      <Tooltip content={<Tip />} />
+                      <Area type="monotone" dataKey="score" stroke="#6366f1" fillOpacity={1} fill="url(#colorScore)" />
+                    </AreaChart>
+                  </ResponsiveContainer>
+                ) : <div className="h-full flex items-center justify-center text-sm text-[#475569]">No engagement data</div>}
               </div>
             </motion.div>
 
             <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }} className="glass p-5">
               <h3 className="text-sm font-semibold text-white mb-1">Emotion Patterns</h3>
-              <p className="text-[10px] text-[#64748b] mb-4">Stacked breakdown by day</p>
-              <div className="h-[240px] flex items-center justify-center text-sm text-[#475569]">
-                Collecting data...
+              <p className="text-[10px] text-[#64748b] mb-4">Distribution of emotions</p>
+              <div className="h-[240px] flex items-center justify-center">
+                {emotionData.length > 0 ? (
+                  <ResponsiveContainer width="100%" height="100%">
+                    <PieChart>
+                      <Pie data={emotionData} dataKey="value" nameKey="name" cx="50%" cy="50%" innerRadius={60} outerRadius={80} paddingAngle={2} strokeWidth={0}>
+                        {emotionData.map((e, i) => <Cell key={i} fill={e.color} />)}
+                      </Pie>
+                      <Tooltip content={<Tip />} />
+                    </PieChart>
+                  </ResponsiveContainer>
+                ) : <div className="text-sm text-[#475569]">No emotion data</div>}
+              </div>
+              <div className="flex flex-wrap gap-3 justify-center mt-2">
+                {emotionData.map((e, i) => (
+                  <div key={i} className="flex items-center gap-1.5 text-xs text-[#94a3b8] capitalize">
+                    <div className="w-2.5 h-2.5 rounded-full" style={{ background: e.color }} />
+                    {e.name}
+                  </div>
+                ))}
               </div>
             </motion.div>
           </div>
 
-          {/* Row 2: Per-Student + Phone Detection */}
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
             <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.2 }} className="glass p-5">
-              <h3 className="text-sm font-semibold text-white mb-1">Top & Bottom Performers</h3>
-              <p className="text-[10px] text-[#64748b] mb-4">By average engagement</p>
-              <div className="h-[200px] flex items-center justify-center text-sm text-[#475569]">
-                Not enough data yet.
-              </div>
-            </motion.div>
-
-            <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.3 }} className="glass p-5">
               <h3 className="text-sm font-semibold text-white mb-1">Phone Detection Frequency</h3>
               <p className="text-[10px] text-[#64748b] mb-4">Detected mobile phones by day</p>
-              <div className="h-[200px] flex items-center justify-center text-sm text-[#475569]">
-                Collecting data...
+              <div className="h-[200px]">
+                {phoneData.length > 0 ? (
+                  <ResponsiveContainer width="100%" height="100%">
+                    <BarChart data={phoneData}>
+                      <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" vertical={false} />
+                      <XAxis dataKey="date" tick={{ fill: "#475569", fontSize: 10 }} axisLine={false} tickLine={false} />
+                      <YAxis tick={{ fill: "#475569", fontSize: 10 }} axisLine={false} tickLine={false} />
+                      <Tooltip content={<Tip />} />
+                      <Bar dataKey="count" fill="#ef4444" radius={[4, 4, 0, 0]} />
+                    </BarChart>
+                  </ResponsiveContainer>
+                ) : <div className="h-full flex items-center justify-center text-sm text-[#475569]">No phone detections recorded</div>}
               </div>
             </motion.div>
           </div>
-
-          {/* Hourly Heatmap */}
-          <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.4 }} className="glass p-5">
-            <h3 className="text-sm font-semibold text-white mb-1">Hourly Engagement Heatmap</h3>
-            <p className="text-[10px] text-[#64748b] mb-4">Engagement patterns by hour and day</p>
-            <div className="h-[200px] flex items-center justify-center text-sm text-[#475569]">
-              Insufficient data for heatmap generation.
-            </div>
-          </motion.div>
         </>
       )}
     </div>

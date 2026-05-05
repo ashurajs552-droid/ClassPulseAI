@@ -413,7 +413,92 @@ ALTER TABLE public.students
   ADD COLUMN IF NOT EXISTS phone_number text,
   ADD COLUMN IF NOT EXISTS semester text,
   ADD COLUMN IF NOT EXISTS department text,
-  ADD COLUMN IF NOT EXISTS gender text;
+  ADD COLUMN IF NOT EXISTS gender text,
+  ADD COLUMN IF NOT EXISTS photo_url text,
+  ADD COLUMN IF NOT EXISTS is_active boolean DEFAULT true,
+  ADD COLUMN IF NOT EXISTS updated_at timestamptz DEFAULT now();
+
+ALTER TABLE public.students
+  DROP COLUMN IF EXISTS enrollment_date,
+  DROP COLUMN IF EXISTS student_code,
+  DROP COLUMN IF EXISTS class_id,
+  DROP COLUMN IF EXISTS face_encoding;
+
+CREATE TABLE IF NOT EXISTS public.sessions (
+  id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
+  teacher_id uuid,
+  title text DEFAULT 'Class Session',
+  started_at timestamptz DEFAULT now(),
+  ended_at timestamptz,
+  total_students int DEFAULT 0,
+  avg_engagement_score float DEFAULT 0,
+  status text DEFAULT 'active',
+  created_at timestamptz DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS public.attendance (
+  id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
+  session_id uuid,
+  student_id uuid,
+  detected_at timestamptz DEFAULT now(),
+  recognition_confidence float DEFAULT 0,
+  status text DEFAULT 'present',
+  marked_by text DEFAULT 'ai'
+);
+
+CREATE TABLE IF NOT EXISTS public.emotion_logs (
+  id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
+  session_id uuid,
+  student_id uuid,
+  emotion text NOT NULL,
+  confidence float DEFAULT 0,
+  timestamp timestamptz DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS public.engagement_scores (
+  id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
+  session_id uuid,
+  student_id uuid,
+  score float DEFAULT 0,
+  attention_level float DEFAULT 0,
+  emotion_score float DEFAULT 0,
+  posture_score float DEFAULT 0,
+  timestamp timestamptz DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS public.phone_detections (
+  id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
+  session_id uuid,
+  student_id uuid,
+  detected_at timestamptz DEFAULT now(),
+  confidence float DEFAULT 0,
+  bbox jsonb
+);
+
+CREATE TABLE IF NOT EXISTS public.alerts (
+  id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
+  session_id uuid,
+  student_id uuid,
+  type text NOT NULL,
+  message text,
+  severity text DEFAULT 'medium',
+  is_resolved boolean DEFAULT false,
+  created_at timestamptz DEFAULT now()
+);
+
+ALTER TABLE public.sessions ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.attendance ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.emotion_logs ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.engagement_scores ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.phone_detections ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.alerts ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "Auth users manage sessions" ON public.sessions FOR ALL TO authenticated USING (true) WITH CHECK (true);
+CREATE POLICY "Auth users manage attendance" ON public.attendance FOR ALL TO authenticated USING (true) WITH CHECK (true);
+CREATE POLICY "Auth users manage emotion_logs" ON public.emotion_logs FOR ALL TO authenticated USING (true) WITH CHECK (true);
+CREATE POLICY "Auth users manage engagement_scores" ON public.engagement_scores FOR ALL TO authenticated USING (true) WITH CHECK (true);
+CREATE POLICY "Auth users manage phone_detections" ON public.phone_detections FOR ALL TO authenticated USING (true) WITH CHECK (true);
+CREATE POLICY "Auth users manage alerts" ON public.alerts FOR ALL TO authenticated USING (true) WITH CHECK (true);
 
 -- ============================================================
 -- SCHEMA COMPLETE
