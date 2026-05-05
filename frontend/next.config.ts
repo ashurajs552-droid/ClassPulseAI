@@ -13,13 +13,21 @@ import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
   reactStrictMode: true,
+  transpilePackages: ["@tensorflow-models/face-detection", "@mediapipe/face_detection"],
 
   webpack: (config: any) => {
     config.resolve.alias = {
       ...config.resolve.alias,
-      '@tensorflow/tfjs$': '@tensorflow/tfjs/dist/tf.min.js'
+      '@tensorflow/tfjs$': '@tensorflow/tfjs/dist/tf.min.js',
+      '@mediapipe/face_detection': require('path').resolve(__dirname, 'lib/mock-mediapipe.js')
     }
     return config
+  },
+  turbopack: {
+    resolveAlias: {
+      '@tensorflow/tfjs$': '@tensorflow/tfjs/dist/tf.min.js',
+      '@mediapipe/face_detection': './lib/mock-mediapipe.js'
+    }
   },
 
   // ── Image optimization ──────────────────────────────────────

@@ -13,8 +13,7 @@ export class AIEngine {
 
     this.faceDetector = await faceDetection.createDetector(
       faceDetection.SupportedModels.MediaPipeFaceDetector,
-      { runtime: 'tfjs', maxFaces: 60, 
-        minDetectionConfidence: 0.7 }
+      { runtime: 'tfjs', maxFaces: 60 }
     )
 
     this.phoneDetector = await cocoSsd.load()

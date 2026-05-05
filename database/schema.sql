@@ -5,7 +5,7 @@
 
 -- 1. EXTENSIONS
 -- ============================================================
-CREATE EXTENSION IF NOT EXISTS "pgvector" WITH SCHEMA "extensions";
+-- CREATE EXTENSION IF NOT EXISTS "pgvector" WITH SCHEMA "extensions";
 CREATE EXTENSION IF NOT EXISTS "pg_trgm" WITH SCHEMA "extensions";
 
 -- 2. CUSTOM ENUM TYPES
@@ -72,7 +72,7 @@ CREATE TABLE IF NOT EXISTS public.students (
   student_code    TEXT UNIQUE NOT NULL,
   full_name       TEXT NOT NULL,
   class_id        UUID NOT NULL REFERENCES public.classes(id) ON DELETE CASCADE,
-  face_encoding   extensions.vector(512),
+  -- face_encoding   extensions.vector(512),
   photo_url       TEXT,
   enrollment_date DATE NOT NULL DEFAULT CURRENT_DATE,
   is_active       BOOLEAN NOT NULL DEFAULT true,
@@ -227,6 +227,7 @@ CREATE TRIGGER on_auth_user_created
 
 -- 7. FACE MATCHING FUNCTION (pgvector cosine similarity)
 -- ============================================================
+/*
 CREATE OR REPLACE FUNCTION public.match_face(
   query_embedding extensions.vector(512),
   match_threshold DOUBLE PRECISION DEFAULT 0.68,
