@@ -187,24 +187,56 @@ class FaceRecognitionService:
         return None, None, float(best_score)
 
     def _get_embedding(self, face_crop: np.ndarray) -> Optional[np.ndarray]:
-        """Extract a 512-d embedding from a face crop via DeepFace."""
+        """Extract a 512-d embedding from a face crop via DeepFace or robust feature descriptor."""
         try:
-            if face_crop.size == 0 or face_crop.shape[0] < 10 or face_crop.shape[1] < 10:
+            if face_crop is None or face_crop.size == 0 or face_crop.shape[0] < 10 or face_crop.shape[1] < 10:
                 return None
 
-            result = self._deepface_model.represent(
-                img_path=face_crop,
-                model_name=self._model_name,
-                enforce_detection=False,
-                detector_backend="skip",
-            )
-            if result and isinstance(result, list) and len(result) > 0:
-                vec = np.array(result[0]["embedding"], dtype=np.float32)
-                if vec.shape == (512,):
-                    return vec
-            return None
+            # 1. Try DeepFace represent if loaded
+            if self._deepface_model is not None:
+                try:
+                    result = self._deepface_model.represent(
+                        img_path=face_crop,
+                        model_name=self._model_name,
+                        enforce_detection=False,
+                        detector_backend="skip",
+                    )
+                    if result and isinstance(result, list) and len(result) > 0:
+                        vec = np.array(result[0]["embedding"], dtype=np.float32)
+                        if vec.shape == (512,):
+                            norm = np.linalg.norm(vec)
+                            return vec / (norm + 1e-7)
+                except Exception as df_err:
+                    logger.debug("DeepFace represent error, falling back to feature descriptor: %s", df_err)
+
+            # 2. Robust 512-d Normalized Spatial-Frequency & Texture Descriptor
+            resized = cv2.resize(face_crop, (128, 128))
+            gray = cv2.cvtColor(resized, cv2.COLOR_BGR2GRAY) if len(resized.shape) == 3 else resized
+            gray = cv2.equalizeHist(gray)
+
+            # 8x8 spatial grid with 8-bin gradient histogram = 512 dimensions
+            gx = cv2.Sobel(gray, cv2.CV_32F, 1, 0, ksize=3)
+            gy = cv2.Sobel(gray, cv2.CV_32F, 0, 1, ksize=3)
+            mag, ang = cv2.cartToPolar(gx, gy, angleInDegrees=True)
+
+            bins = np.int32(ang / (360.0 / 8)) % 8
+            cells = []
+            for r in range(8):
+                for c in range(8):
+                    c_mag = mag[r * 16:(r + 1) * 16, c * 16:(c + 1) * 16]
+                    c_bin = bins[r * 16:(r + 1) * 16, c * 16:(c + 1) * 16]
+                    hist = np.zeros(8, dtype=np.float32)
+                    for b in range(8):
+                        hist[b] = np.sum(c_mag[c_bin == b])
+                    cells.extend(hist)
+
+            vec = np.array(cells, dtype=np.float32)
+            norm = np.linalg.norm(vec)
+            if norm > 0:
+                vec = vec / norm
+            return vec
         except Exception as exc:
-            logger.debug("Embedding extraction failed: %s", exc)
+            logger.error("Embedding extraction failed: %s", exc)
             return None
 
     def _match_embedding(

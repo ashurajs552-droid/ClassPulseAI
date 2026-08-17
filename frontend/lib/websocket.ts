@@ -226,7 +226,32 @@ export function useWebSocket() {
 
     const unsubs = [
       wsManager.onStatus(setStatus),
-      wsManager.on<FrameUpdate>("frame_update", setLastFrame),
+      wsManager.on<any>("frame_update", (data) => {
+        if (data?.frame_b64) {
+          setLastFrame({
+            frame_b64: data.frame_b64,
+            fps: data.metrics?.fps || 30,
+            timestamp: Date.now(),
+          });
+        }
+        if (data?.detections) {
+          setDetections(data.detections);
+        }
+        if (data?.metrics) {
+          setMetrics({
+            fps: data.metrics.fps || 0,
+            latency_ms: data.metrics.latency_ms || 0,
+            detected_count: data.metrics.detection_count ?? data.detections?.length ?? 0,
+            present_count: data.metrics.present_students ?? 0,
+            alert_count: data.metrics.alerts_count ?? 0,
+            avg_engagement: data.metrics.avg_engagement ?? 0,
+            emotion_distribution: data.metrics.emotion_distribution ?? {},
+          });
+        }
+        if (data?.alerts && Array.isArray(data.alerts) && data.alerts.length > 0) {
+          setAlerts((prev) => [...data.alerts, ...prev].slice(0, 50));
+        }
+      }),
       wsManager.on<DetectionUpdate>("detection_update", (d) => setDetections(d.students)),
       wsManager.on<MetricsUpdate>("metrics_update", setMetrics),
       wsManager.on<AlertEvent>("alert", (a) => setAlerts((prev) => [a, ...prev].slice(0, 50))),

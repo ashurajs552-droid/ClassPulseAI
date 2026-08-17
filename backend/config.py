@@ -9,8 +9,14 @@ from __future__ import annotations
 
 import os
 
+try:
+    from pydantic_settings import BaseSettings
+except ImportError:
+    try:
+        from pydantic import BaseSettings
+    except ImportError:
+        from pydantic import BaseModel as BaseSettings
 from pydantic import Field
-from pydantic_settings import BaseSettings
 
 
 class Settings(BaseSettings):
